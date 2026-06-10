@@ -10,7 +10,7 @@
 
 """
 Systems Thinking in the AI Era III: Real-Time & Communication Systems
-Lesson 2: Service + Queue Real-Time Messaging Discovery Lab
+Lab 1: Service + Queue — Real-Time Messaging Discovery
 Interactive Python Application
 
 This application guides students through three progressive experiments that
@@ -18,12 +18,14 @@ build deep intuition for routing messages between Services. Same message,
 different delivery shape, and you will feel why the choice matters.
 """
 
+import io
 import os
 import sys
 import time
 import random
 import argparse
 import threading
+import contextlib
 from typing import Optional
 
 # Dual-mode import so this file works in both layouts:
@@ -48,13 +50,18 @@ except ImportError:
 
 
 class LabExperience:
-    """Interactive lab experience for Lesson 2: Service + Queue Discovery"""
+    """Interactive lab experience for Lab 1: Service + Queue Discovery"""
 
     def __init__(self, student_name: str = "Student"):
         self.student_name = student_name
         self.experiment_times = {}
         self.correct_answers = 0
         self.total_questions = 0
+
+        # When True (full-lab mode), each experiment chains to the next via a
+        # yes/no prompt and the final experiment chains to the summary.
+        # run_one() sets this to False so a single experiment ends cleanly.
+        self.chain_experiments = True
 
         self.separator = "=" * 80
         self.mini_separator = "-" * 40
@@ -175,7 +182,7 @@ class LabExperience:
     def run_welcome(self):
         self.print_header("WELCOME TO SYSTEMS THINKING IN THE AI ERA")
         print("\n🎓 Systems Thinking in the AI Era III: Real-Time & Communication Systems")
-        print("📚 Lesson 2: Service + Queue Real-Time Messaging Discovery Lab\n")
+        print("📚 Lab 1: Service + Queue — Real-Time Messaging Discovery\n")
 
         self.typewriter_print("Transform from a code writer who hard-wires every sender")
         self.typewriter_print("to a system thinker who knows when a Queue belongs in between.")
@@ -278,8 +285,11 @@ Queue at its own pace. Watch how Alice's experience changes.
             response = alice_service.handle_request("/send_direct",
                                                    data={"text": f"during outage #{i+1}"})
             direct_outage_times.append(time.perf_counter() - t0)
-            # alice_service.handle_request wraps the inner exception into a 500 response
-            if response.get("status") != 200:
+            # Alice's own handler returns fine (outer status 200), but Bob's
+            # exception is wrapped into a nested 500 response. The failure we
+            # care about is Bob's, so inspect the nested status.
+            bob_response = (response.get("data") or {}).get("bob_response") or {}
+            if response.get("status") != 200 or bob_response.get("status") != 200:
                 direct_failures += 1
 
         bob_is_down["down"] = False
@@ -300,25 +310,28 @@ Queue at its own pace. Watch how Alice's experience changes.
         self.print_header("Part B: Queue-Routed Delivery", style="sub")
 
         bob_inbox_queued = []
+        pending_for_bob = []  # messages held on the delivery side while Bob is offline
         bob_is_down["down"] = False
 
         message_queue = Queue("alice_to_bob_queue")
 
         @message_queue.subscriber("chat_message")
         def bob_subscriber(message):
-            # Bob's subscriber drains the Queue. If Bob is down, the message
-            # stays in the Queue until Bob comes back online and the
-            # subscriber resumes draining. Either way, Alice has already
+            # The queue path's delivery side. If Bob is offline, the message
+            # is NOT thrown away: it is held (with its original send time)
+            # until Bob comes back online. Either way, Alice has already
             # walked away.
             if bob_is_down["down"]:
-                raise Exception("Bob is offline, message stays in queue")
+                pending_for_bob.append(message)
+                return
             time.sleep(0.05)
             bob_inbox_queued.append(message["text"])
 
         @alice_service.route("/send_via_queue")
         def alice_send_via_queue(data):
             # Alice writes once. She does not wait for Bob.
-            message_queue.enqueue({"text": data["text"]}, message_type="chat_message")
+            message_queue.enqueue({"text": data["text"], "sent_at": time.time()},
+                                  message_type="chat_message")
             return {"alice_status": "done"}
 
         # Let the subscriber register cleanly before we start writing
@@ -359,24 +372,55 @@ Queue at its own pace. Watch how Alice's experience changes.
             queue_outage_times.append(time.perf_counter() - t0)
 
         avg_queue_outage = (sum(queue_outage_times) / len(queue_outage_times)) * 1000
+
+        # Give the dispatcher a moment to hand the outage messages to the
+        # delivery side, where they are held for Bob.
+        time.sleep(0.5)
         self.typewriter_print(
             f"📊 During Bob's outage: Alice's send latency = {avg_queue_outage:.1f}ms "
-            f"per message (unchanged). Messages are sitting in the Queue.",
+            f"per message (unchanged).",
+            speed=self.fast_typewriter_speed,
+        )
+        self.typewriter_print(
+            f"   {len(pending_for_bob)}/3 outage messages are waiting for Bob. "
+            f"None delivered yet. None lost.",
             speed=self.fast_typewriter_speed,
         )
 
-        # Bring Bob back; the Queue keeps trying to dispatch
+        # Bob stays offline for a few seconds so the wait is visible
+        self.typewriter_print("\n⏳ Bob stays offline for a few seconds. The messages wait...")
+        time.sleep(3.0)
+
+        # Bob comes back online and drains the messages that waited for him
         bob_is_down["down"] = False
-        time.sleep(1.0)
+        self.typewriter_print("\n🔌 Bob is back online. Delivering the messages that waited:\n")
+        recovered = 0
+        for message in pending_for_bob:
+            time.sleep(0.05)
+            bob_inbox_queued.append(message["text"])
+            recovered += 1
+            waited = time.time() - message["sent_at"]
+            self.typewriter_print(
+                f"   📨 \"{message['text']}\" delivered {waited:.1f}s after send — "
+                f"Bob was offline; the message waited.",
+                speed=self.fast_typewriter_speed,
+            )
+        pending_for_bob.clear()
+
+        self.typewriter_print(
+            f"\n📊 {recovered}/3 outage messages delivered after Bob's recovery. 0 lost.",
+            speed=self.fast_typewriter_speed,
+        )
 
         message_queue.stop()
 
         self.experiment_times['experiment_1'] = time.perf_counter() - start_time
 
         self.print_result(
-            f"Direct send avg: {avg_direct:.0f}ms. Queued send avg: {avg_queued:.1f}ms. "
-            f"Alice's return time dropped by roughly {avg_direct / max(avg_queued, 0.1):.0f}x "
-            f"once the Queue absorbed Bob's processing time."
+            f"Direct send avg: {avg_direct:.0f}ms per message. Queued send avg: "
+            f"{avg_queued:.1f}ms — effectively instant. The Queue path absorbed "
+            f"Bob's processing time AND his downtime: Alice never waited, and "
+            f"every message sent during the outage was delivered after recovery."
         )
 
         # -------------------------------------------------------------------
@@ -402,14 +446,14 @@ Queue at its own pace. Watch how Alice's experience changes.
         self.ask_multiple_choice(
             "When Bob's Service went offline, what happened to Alice in each delivery shape?",
             [
-                "Direct: Alice's calls slowed and failed. Queued: Alice's calls stayed fast and the messages waited in the Queue for Bob.",
+                "Direct: Alice's calls slowed and failed. Queued: Alice's calls stayed fast, and the messages were held and delivered once Bob came back.",
                 "Direct and Queued both failed because if Bob is offline, no message gets through.",
                 "Direct stayed fast because Alice gave up immediately. Queued got slow because the Queue had to retry.",
             ],
             [
-                "Right. This is the second piece of decoupling: availability decoupling. With direct delivery, Bob being down is Alice's problem. With the Queue, Bob being down is the Queue's problem. Messages persist in the Queue until Bob recovers and his subscriber drains them.",
-                "Queue-routed delivery does not lose messages when Bob is offline. The Queue holds them. That is the entire reason real chat apps survive when phones go through tunnels: the Queue keeps the message until the recipient comes back online.",
-                "Direct delivery did not stay fast. Alice's calls slowed to a 2-second timeout because she was waiting on Bob. With the Queue, Alice's writes stayed fast and the Queue handled the unreachable subscriber on her behalf.",
+                "Right. This is the second piece of decoupling: availability decoupling. With direct delivery, Bob being down is Alice's problem — you watched 3/3 of her sends fail. With the Queue path, Bob being down is the delivery side's problem. The outage messages were held, and every one was delivered after Bob recovered, stamped with how long it waited. Alice never noticed.",
+                "Queue-routed delivery did not lose messages when Bob was offline. You watched all 3 outage messages get delivered after he came back, each showing how many seconds it waited. That is the entire reason real chat apps survive when phones go through tunnels: the message is held until the recipient comes back online.",
+                "Direct delivery did not stay fast. Alice's calls slowed to a 2-second timeout because she was waiting on Bob, and all 3 failed. With the Queue, Alice's writes stayed fast, and the delivery side held the messages until Bob returned — then delivered every one.",
             ],
             correct_index=0,
         )
@@ -429,8 +473,14 @@ Queue at its own pace. Watch how Alice's experience changes.
             correct_index=0,
         )
 
-        if self.ask_yes_no("Ready to see what happens when one writer has many subscribers?"):
-            self.experiment_2_fanout()
+        if self.chain_experiments:
+            if self.ask_yes_no("Ready to see what happens when one writer has many subscribers?"):
+                self.experiment_2_fanout()
+            else:
+                self.typewriter_print(
+                    "\nNo problem. Run `python3 lab1_service_queue_messaging.py 2` "
+                    "to pick up with Experiment 2 whenever you're ready."
+                )
 
     # =======================================================================
     # EXPERIMENT 2: Fanout - one writer, many subscribers
@@ -600,12 +650,13 @@ Watch what happens to Alice's send time as the audience grows.
 
         print()
         print("📊 Comparison: Alice's send/return time as audience grows")
-        print(f"   {'Audience':<10} {'Direct (ms)':<14} {'Queue (ms)':<12} {'Ratio':<8}")
+        print(f"   {'Audience':<10} {'Direct (ms)':<14} {'Queue (ms)':<12}")
         for size in audience_sizes:
             d = direct_results[size]["send_time_ms"]
             q = queue_results[size]["alice_return_ms"]
-            ratio = d / max(q, 0.1)
-            print(f"   {size:<10} {d:<14.1f} {q:<12.1f} {ratio:<8.1f}x")
+            print(f"   {size:<10} {d:<14.1f} {q:<12.1f}")
+        print("   Direct grows with the audience. The Queue write stays around "
+              "a millisecond no matter how many subscribers are listening.")
 
         self.print_result(
             "Direct fanout: Alice's cost grew linearly with audience size. "
@@ -662,8 +713,14 @@ Watch what happens to Alice's send time as the audience grows.
             correct_index=0,
         )
 
-        if self.ask_yes_no("Ready to see what happens when consumers cannot keep up?"):
-            self.experiment_3_backpressure()
+        if self.chain_experiments:
+            if self.ask_yes_no("Ready to see what happens when consumers cannot keep up?"):
+                self.experiment_3_backpressure()
+            else:
+                self.typewriter_print(
+                    "\nNo problem. Run `python3 lab1_service_queue_messaging.py 3` "
+                    "to pick up with Experiment 3 whenever you're ready."
+                )
 
     # =======================================================================
     # EXPERIMENT 3: Backpressure - slow consumers, growing queue depth
@@ -730,25 +787,43 @@ help. That is what backpressure is.
 
         self.typewriter_print(
             f"\n🚀 Producer attempting {total_attempts} messages "
-            f"at {producer_target_rate}/sec into a bounded Queue (capacity 200)...\n"
+            f"at {producer_target_rate}/sec into a bounded Queue (capacity 200)..."
+        )
+        self.typewriter_print(
+            "   (per-message Queue logs are silenced during this bulk run; "
+            "progress prints every 50 messages)\n"
         )
 
+        # The Queue building block prints a line for every enqueue and every
+        # dispatch. At 300 messages that floods the terminal, so we redirect
+        # stdout to a buffer for the bulk phase and print a progress counter
+        # on the real stdout instead.
+        real_stdout = sys.stdout
+        block_log = io.StringIO()
+
         producer_start = time.perf_counter()
-        for i in range(total_attempts):
-            ok = bounded_queue.enqueue(
-                {"seq": i, "enqueued_at": time.time(), "text": f"msg_{i}"},
-                message_type="ticker",
-            )
-            if ok:
-                accepted += 1
-            else:
-                rejected += 1
+        with contextlib.redirect_stdout(block_log):
+            for i in range(total_attempts):
+                ok = bounded_queue.enqueue(
+                    {"seq": i, "enqueued_at": time.time(), "text": f"msg_{i}"},
+                    message_type="ticker",
+                )
+                if ok:
+                    accepted += 1
+                else:
+                    rejected += 1
 
-            if i % 30 == 0:
-                depth_samples.append(bounded_queue.size())
+                if i % 30 == 0:
+                    depth_samples.append(bounded_queue.size())
 
-            # pace the producer
-            time.sleep(producer_interval)
+                if (i + 1) % 50 == 0:
+                    print(f"   ... {i + 1}/{total_attempts} attempted | "
+                          f"accepted {accepted} | rejected {rejected} | "
+                          f"queue depth {bounded_queue.size()}",
+                          file=real_stdout)
+
+                # pace the producer
+                time.sleep(producer_interval)
 
         producer_elapsed = time.perf_counter() - producer_start
 
@@ -767,9 +842,11 @@ help. That is what backpressure is.
             speed=self.fast_typewriter_speed,
         )
 
-        # Let the consumer drain a bit so we can show message age growing
+        # Let the consumer drain a bit so we can show message age growing.
+        # (Still silencing the per-message dispatch logs.)
         self.typewriter_print("\n⏳ Letting the slow consumer drain for 5 more seconds...")
-        time.sleep(5)
+        with contextlib.redirect_stdout(block_log):
+            time.sleep(5)
 
         if message_ages:
             avg_age = sum(message_ages) / len(message_ages)
@@ -790,6 +867,10 @@ help. That is what backpressure is.
                 f"   Queue depth still pending:       {bounded_queue.size()}",
                 speed=self.fast_typewriter_speed,
             )
+
+        # Part A is done: stop the bounded queue so its dispatcher stops
+        # delivering (and printing) in the background during Part B.
+        bounded_queue.stop()
 
         self.print_warning(
             "The Queue did its job. It told you, loudly, that the consumer is "
@@ -850,34 +931,49 @@ We will simulate response 1: scale the consumer pool by 5x.
 
         self.typewriter_print(
             f"\n🚀 Same producer load (100/sec, 300 messages) into a Queue with "
-            f"5 parallel consumers...\n"
+            f"5 parallel consumers..."
+        )
+        self.typewriter_print(
+            "   (per-message logs silenced again; progress every 50 messages)\n"
         )
         scaled_accepted = 0
         scaled_rejected = 0
         scaled_depth_samples = []
+        backlog_samples = []  # jobs waiting/processing in the Worker pool
+
+        real_stdout = sys.stdout
+        block_log = io.StringIO()
         scaled_start = time.perf_counter()
-        for i in range(300):
-            ok = scaled_queue.enqueue(
-                {"seq": i, "enqueued_at": time.time(), "text": f"msg_{i}"},
-                message_type="ticker",
-            )
-            if ok:
-                scaled_accepted += 1
-            else:
-                scaled_rejected += 1
-            if i % 30 == 0:
-                scaled_depth_samples.append(scaled_queue.size())
-            time.sleep(producer_interval)
+        with contextlib.redirect_stdout(block_log):
+            for i in range(300):
+                ok = scaled_queue.enqueue(
+                    {"seq": i, "enqueued_at": time.time(), "text": f"msg_{i}"},
+                    message_type="ticker",
+                )
+                if ok:
+                    scaled_accepted += 1
+                else:
+                    scaled_rejected += 1
+                if i % 30 == 0:
+                    scaled_depth_samples.append(scaled_queue.size())
+                    backlog_samples.append(len(worker_pool.active_jobs))
+                if (i + 1) % 50 == 0:
+                    print(f"   ... {i + 1}/300 attempted | accepted {scaled_accepted} | "
+                          f"queue depth {scaled_queue.size()} | "
+                          f"worker backlog {len(worker_pool.active_jobs)}",
+                          file=real_stdout)
+                time.sleep(producer_interval)
 
         scaled_elapsed = time.perf_counter() - scaled_start
 
-        # Allow drain
+        # Allow drain (still silenced)
         self.typewriter_print("\n⏳ Draining the scaled pipeline...")
-        deadline = time.perf_counter() + 10
-        while time.perf_counter() < deadline:
-            if len(scaled_delivered) >= scaled_accepted:
-                break
-            time.sleep(0.2)
+        with contextlib.redirect_stdout(block_log):
+            deadline = time.perf_counter() + 10
+            while time.perf_counter() < deadline:
+                if len(scaled_delivered) >= scaled_accepted:
+                    break
+                time.sleep(0.2)
 
         self.typewriter_print(
             f"\n📊 With 5 parallel consumers:",
@@ -888,9 +984,22 @@ We will simulate response 1: scale the consumer pool by 5x.
             speed=self.fast_typewriter_speed,
         )
         self.typewriter_print(
-            f"   Queue depth samples: {scaled_depth_samples}",
+            f"   Queue depth samples:    {scaled_depth_samples}",
             speed=self.fast_typewriter_speed,
         )
+        self.typewriter_print(
+            f"   Worker backlog samples: {backlog_samples}",
+            speed=self.fast_typewriter_speed,
+        )
+        self.print_info("""
+Read those two lines together. The Queue's depth stays near zero because
+its subscriber hands each message straight to the Worker pool, so the
+waiting happens in the Worker's job backlog instead of in the Queue.
+The backlog is the honest signal here: it grows while the producer
+outruns the 5 consumers (50/sec vs 100/sec), but far slower than Part A's
+queue did, and it drains quickly once the producer stops. Same load,
+5x the consumers, and the system never had to reject a write.
+""")
         if scaled_ages:
             avg_age = sum(scaled_ages) / len(scaled_ages)
             max_age = max(scaled_ages)
@@ -905,13 +1014,12 @@ We will simulate response 1: scale the consumer pool by 5x.
 
         self.print_result(
             "Adding more consumers drained the same producer load with far less "
-            "depth growth and far younger messages at delivery. The Queue shape "
+            "backlog growth and far younger messages at delivery. The Queue shape "
             "did not change. Only the consumer count did."
         )
 
         worker_pool.stop()
         scaled_queue.stop()
-        bounded_queue.stop()
 
         self.experiment_times['experiment_3'] = time.perf_counter() - start_time
 
@@ -936,14 +1044,14 @@ We will simulate response 1: scale the consumer pool by 5x.
         )
 
         self.ask_multiple_choice(
-            "When you added 5 parallel consumers, why did message age and queue depth drop so much?",
+            "When you added 5 parallel consumers, why did message age and the backlog drop so much?",
             [
                 "Total consumer throughput grew 5x, so the consumer side could keep up with (or nearly keep up with) the producer.",
                 "Because the producer slowed down automatically once it noticed multiple consumers.",
                 "Because the messages got smaller when consumed in parallel.",
             ],
             [
-                "Right. The producer's rate did not change. The Queue's design did not change. The only thing that changed was the consumer pool size. Five parallel consumers at 10/sec each is 50/sec, which is much closer to the 100/sec producer rate. Depth grows much more slowly, and messages spend much less time waiting.",
+                "Right. The producer's rate did not change. The Queue's design did not change. The only thing that changed was the consumer pool size. Five parallel consumers at 10/sec each is 50/sec, which is much closer to the 100/sec producer rate. The backlog grows much more slowly, and messages spend much less time waiting.",
                 "Producers do not auto-throttle in this design. The producer wrote at the same rate in both runs. The Queue absorbed the imbalance differently because the consumer side was now five times bigger.",
                 "Message size is irrelevant here. The bytes are identical. What changed is how many of them can be processed in parallel on the consumer side. Parallelism on the consumer is the lever, not message size.",
             ],
@@ -965,8 +1073,9 @@ We will simulate response 1: scale the consumer pool by 5x.
             correct_index=0,
         )
 
-        if self.ask_yes_no("Ready to see your discovery summary?"):
-            self.show_summary()
+        if self.chain_experiments:
+            if self.ask_yes_no("Ready to see your discovery summary?"):
+                self.show_summary()
 
     # =======================================================================
     # Summary
@@ -1023,11 +1132,10 @@ process at their own pace. That is the whole pattern. The rest is detail.
     # =======================================================================
 
     def run_full(self):
+        # Chain-only: experiment 1 chains to 2, 2 chains to 3, and 3 chains
+        # to the summary via the yes/no prompts. run_full just starts the chain.
         self.run_welcome()
         self.experiment_1_direct_vs_queue()
-        self.experiment_2_fanout()
-        self.experiment_3_backpressure()
-        self.show_summary()
 
     def run_one(self, experiment_num: int):
         mapping = {
@@ -1039,12 +1147,24 @@ process at their own pace. That is the whole pattern. The rest is detail.
         if fn is None:
             print(f"Unknown experiment: {experiment_num}. Choose 1-3.")
             return
+        # Single-experiment mode: do not chain onward.
+        self.chain_experiments = False
         print(f"\n  Running Experiment {experiment_num} directly...\n")
         fn()
+        print(f"\n🏁 Experiment {experiment_num} complete.")
+        if experiment_num < 3:
+            print(f"   Next up: `python3 lab1_service_queue_messaging.py "
+                  f"{experiment_num + 1}` — or run the full lab with "
+                  f"`python3 lab1_service_queue_messaging.py`.")
+        else:
+            print("   Run the full lab with `python3 lab1_service_queue_messaging.py` "
+                  "to see the discovery summary.")
 
     def run_non_interactive(self):
         """Run all experiments without prompts. Useful for CI / smoke tests."""
         # Patch the input-driven helpers so the lab can run unattended.
+        # The yes/no auto-answer drives the experiment chain 1 -> 2 -> 3 ->
+        # summary, so each experiment runs exactly once.
         self.instant_print = True
 
         def _auto_enter(prompt=""):
@@ -1059,7 +1179,6 @@ process at their own pace. That is the whole pattern. The rest is detail.
             self.correct_answers += 1
             return choices[correct_index]
 
-        original_input = __builtins__.input if hasattr(__builtins__, "input") else input
         # Replace the bound methods so prompts disappear.
         self.wait_for_enter = _auto_enter
         self.ask_yes_no = _auto_yes
@@ -1069,9 +1188,6 @@ process at their own pace. That is the whole pattern. The rest is detail.
         self.student_name = "Tester"
         self.print_info("Running in non-interactive mode (--no-interactive).")
         self.experiment_1_direct_vs_queue()
-        self.experiment_2_fanout()
-        self.experiment_3_backpressure()
-        self.show_summary()
 
 
 def main():

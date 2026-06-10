@@ -10,7 +10,7 @@
 
 """
 Systems Thinking in the AI Era III: Real-Time & Communication Systems
-Lesson 9: Service + File Store + Vector Database Discovery Lab
+Lab 2: Service + File Store + Vector Database Discovery
 Interactive Python Application
 
 Three progressive experiments that build deep intuition for semantic
@@ -166,11 +166,18 @@ def keyword_overlap_score(query: str, doc: str) -> float:
 # =============================================================================
 
 class LabExperience:
-    """Interactive lab experience for Lesson 9: Service + File Store + Vector DB"""
+    """Interactive lab experience for Lab 2: Service + File Store + Vector DB"""
 
     def __init__(self, student_name: str = "Student"):
         self.student_name = student_name
         self.experiment_times = {}
+        self.correct_answers = 0
+        self.total_questions = 0
+
+        # When True (full-lab mode), each experiment chains to the next via a
+        # yes/no prompt and the final experiment chains to the summary.
+        # run_one() sets this to False so a single experiment ends cleanly.
+        self.chain_experiments = True
 
         self.separator = "=" * 80
         self.mini_separator = "-" * 40
@@ -247,18 +254,27 @@ class LabExperience:
                 return False
             print("Please answer 'yes' or 'no'")
 
-    def ask_multiple_choice(self, question: str, choices: list, responses: list) -> str:
+    def ask_multiple_choice(self, question: str, choices: list, responses: list,
+                            correct_index: int = 0) -> str:
+        """Ask a multiple choice question with educational feedback per option.
+
+        correct_index is the 0-based index of the correct choice in `choices`.
+        We track right/wrong stats for the running score and final summary.
+        """
+        self.total_questions += 1
+
         print(f"\nREFLECTION QUESTION:")
         print(f"   {question}\n")
         for i, choice in enumerate(choices, 1):
             print(f"   {i}. {choice}")
         if self.non_interactive:
-            # In non-interactive mode, just print the first response so the
+            # In non-interactive mode, auto-select the correct answer so the
             # full lab content gets exercised end to end.
-            print(f"\n[non-interactive] auto-selecting choice 1")
+            self.correct_answers += 1
+            print(f"\n[non-interactive] auto-selecting choice {correct_index + 1}")
             print(f"\n>>", end=' ')
-            self.typewriter_print(responses[0])
-            return choices[0]
+            self.typewriter_print(responses[correct_index])
+            return choices[correct_index]
         while True:
             try:
                 choice_num = int(input(f"\n?? Enter your choice (1-{len(choices)}): ").strip())
@@ -269,7 +285,12 @@ class LabExperience:
                 print(f"Please enter a valid number between 1 and {len(choices)}")
         selected_choice = choices[choice_num - 1]
         educational_response = responses[choice_num - 1]
-        print(f"\nYou selected: {selected_choice}")
+        if choice_num - 1 == correct_index:
+            self.correct_answers += 1
+            print(f"\n✅ You selected: {selected_choice}")
+        else:
+            print(f"\n📘 You selected: {selected_choice}")
+        print(f"   (Running score: {self.correct_answers}/{self.total_questions})")
         print(f"\n>>", end=' ')
         self.typewriter_print(educational_response)
         self.wait_for_enter()
@@ -282,7 +303,7 @@ class LabExperience:
     def run_welcome(self):
         self.print_header("WELCOME TO SYSTEMS THINKING IN THE AI ERA")
         print("\nSystems Thinking in the AI Era III: Real-Time & Communication Systems")
-        print("Lesson 9: Service + File Store + Vector Database Discovery Lab\n")
+        print("Lab 2: Service + File Store + Vector Database Discovery\n")
 
         self.typewriter_print(
             "Transform from a code writer who thinks of search as 'finding the right keywords'"
@@ -475,8 +496,14 @@ That's the whole story of vector search: meaning wins over wording.
             ],
         )
 
-        if self.ask_yes_no("Ready to feel why we move embedding off the write path?"):
-            self.experiment_2_embedding_pipeline()
+        if self.chain_experiments:
+            if self.ask_yes_no("Ready to feel why we move embedding off the write path?"):
+                self.experiment_2_embedding_pipeline()
+            else:
+                self.typewriter_print(
+                    "\nNo problem. Run `python3 lab2_service_file_store_vector_db.py 2` "
+                    "to pick up with Experiment 2 whenever you're ready."
+                )
 
     # =======================================================================
     # EXPERIMENT 2 - Embedding pipeline patterns
@@ -700,8 +727,14 @@ The trade is freshness of the index vs latency of the user-facing path.
             ],
         )
 
-        if self.ask_yes_no("Ready to face real-time AI assist?"):
-            self.experiment_3_realtime_ai_assist()
+        if self.chain_experiments:
+            if self.ask_yes_no("Ready to face real-time AI assist?"):
+                self.experiment_3_realtime_ai_assist()
+            else:
+                self.typewriter_print(
+                    "\nNo problem. Run `python3 lab2_service_file_store_vector_db.py 3` "
+                    "to pick up with Experiment 3 whenever you're ready."
+                )
 
     # =======================================================================
     # EXPERIMENT 3 - Real-time AI assist (inline LLM, async stream, retrieve)
@@ -931,8 +964,9 @@ We'll run the same user question through all three.
             ],
         )
 
-        if self.ask_yes_no("Ready to see your discovery summary?"):
-            self.show_summary()
+        if self.chain_experiments:
+            if self.ask_yes_no("Ready to see your discovery summary?"):
+                self.show_summary()
 
     # =======================================================================
     # Summary
@@ -972,13 +1006,19 @@ latency, and cost are the three axes you trade against) shows up in
 every AI-enhanced product, from Slack's smart replies to ChatGPT's
 plugins to Notion's AI features.
 """)
+        print(f"\nYour results:")
+        print(f"   Correct answers: {self.correct_answers}/{self.total_questions}")
+        if self.total_questions > 0:
+            pct = (self.correct_answers / self.total_questions) * 100
+            print(f"   Accuracy: {pct:.0f}%")
+
         print(f"\nTime spent per experiment:")
         for name, t in self.experiment_times.items():
             print(f"   {name}: {t:.1f}s")
 
         self.print_info("""
-The next case study (Lessons 10-11, AI Chatbots) takes the patterns you
-just felt and assembles them into a complete AI-powered communication
+The next case study (Lessons 9 and 10, AI Chatbots) takes the patterns
+you just felt and assembles them into a complete AI-powered communication
 product. You'll recognize every piece because you built each one by
 hand here.
 
@@ -990,11 +1030,12 @@ You're ready.
     # =======================================================================
 
     def run_full(self):
+        # Chain-only: experiment 1 chains to 2, 2 chains to 3, and 3 chains
+        # to the summary via the yes/no prompts. run_full just starts the
+        # chain. (In --no-interactive mode ask_yes_no auto-answers yes, so a
+        # full run still executes every experiment exactly once.)
         self.run_welcome()
         self.experiment_1_keyword_vs_semantic()
-        self.experiment_2_embedding_pipeline()
-        self.experiment_3_realtime_ai_assist()
-        self.show_summary()
 
     def run_one(self, experiment_num: int):
         mapping = {
@@ -1006,8 +1047,18 @@ You're ready.
         if fn is None:
             print(f"Unknown experiment: {experiment_num}. Choose 1-3.")
             return
+        # Single-experiment mode: do not chain onward.
+        self.chain_experiments = False
         print(f"\nRunning Experiment {experiment_num} directly...\n")
         fn()
+        print(f"\nExperiment {experiment_num} complete.")
+        if experiment_num < 3:
+            print(f"   Next up: `python3 lab2_service_file_store_vector_db.py "
+                  f"{experiment_num + 1}` — or run the full lab with "
+                  f"`python3 lab2_service_file_store_vector_db.py`.")
+        else:
+            print("   Run the full lab with `python3 lab2_service_file_store_vector_db.py` "
+                  "to see the discovery summary.")
 
 
 def main():

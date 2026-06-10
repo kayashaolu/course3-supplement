@@ -18,7 +18,7 @@ course3-supplement/
 │   └── lab2_service_file_store_vector_db.py       Service + File Store + Vector DB —
 │                                                  AI-Enhanced Communication
 │
-└── challenges/course3/     Technical Design Document templates (Phase 5)
+└── challenges/course3/     Technical Design Document templates
 ```
 
 ## Quick start
@@ -26,9 +26,9 @@ course3-supplement/
 You need Python 3.8 or higher. No third-party packages are required: the labs use only the standard library.
 
 ```bash
-git clone https://github.com/systemthinkinglab/course3-supplement.git
+git clone https://github.com/kayashaolu/course3-supplement.git
 cd course3-supplement
-python3 labs/course3/lab1_service_queue_messaging.py
+python3 labs/course3/lab1_service_queue_messaging.py   # Windows: use 'py -3' and backslash paths
 ```
 
 ## Running the labs
@@ -80,7 +80,7 @@ python3 labs/course3/lab2_service_file_store_vector_db.py --skip-typewriter
 
 ## Challenge templates
 
-Phase 5 of the course will publish three Technical Design Document templates here for the Course 3 Capstone Challenge: designing **TeamFlow**, a team collaboration platform.
+Three Technical Design Document templates for the Course 3 Capstone Challenge live here: designing **TeamFlow**, a team collaboration platform.
 
 - **Part 1: MVP Foundation** — real-time messaging with delivery confirmation, presence, and notifications
 - **Part 2: Collaboration Expansion** — files, collaborative documents, search, retention
