@@ -16,13 +16,24 @@ This document is your **evolution** of the Part 1 design, not a redesign. Part 2
 
 ## IMPORTANT: Technology-Agnostic Design Required
 
-Use building block names, not technologies. See the Part 1 template for the full list. Full-text indexes, inverted indexes, snapshots, soft-delete, archive tiers, and CRDT or operational transformation as concepts are all **techniques and patterns** - they describe what happens inside building blocks, not new primitives.
+Use building block names, not technologies. See the Part 1 template for the full list. Named techniques and concepts (indexing strategies, snapshotting, convergence algorithms, archive tiers) are **patterns** - they describe what happens inside building blocks, not new primitives. Name the pattern; do not name a vendor.
+
+## Flow notation: how to write flows
+
+Every flow in this document uses building-block notation. Here is the format, illustrated with a system this course does not cover - a city library's book-reservation system:
+
+```
+Reserve a book: User → Reservation Service → Relational Database (availability check) → Queue → Notification Worker → External Service (SMS)
+Browse the catalog: User → Catalog Service + Key-Value Store → Relational Database (on cache miss)
+```
+
+Your flows should look like this in notation - the architecture is yours to design.
 
 ---
 
 ## Part 1 Architecture Recap
 
-[Briefly summarize your Part 1 architecture in 2-3 sentences. Name the major components: Message Service, fanout Queue, Relational Database for the message log, Key-Value Store for presence and conversation lists, notification Queue + Worker, External Service for push gateway. This sets the baseline for what you are evolving.]
+[Briefly summarize your Part 1 architecture in 2-3 sentences. Name the major components and how they connect. This sets the baseline for what you are evolving.]
 
 ---
 
@@ -32,28 +43,20 @@ Use building block names, not technologies. See the Part 1 template for the full
 
 ### User Flow Design
 
-```
-Example formats:
-Upload: User → Upload Service → File Store
-File metadata: Upload Service → Relational Database (uploader, conversation, MIME type, size, storage key)
-Preview job: Upload Service → Queue (preview job)
-Preview render: Queue → Preview Worker → File Store (thumbnail or preview asset)
-```
-
 **Your file-sharing flows:**
-[Write 3-5 specific flows for the upload path, the metadata write, the async preview pipeline, and how the inline preview gets back to the conversation when it is ready]
+[Write 3-5 specific flows covering how a file gets uploaded, where its bytes and its metadata live, how the preview gets generated, and how the inline preview reaches the conversation when it is ready]
 
 ### Building Blocks Added
 
-- **[File Store]**: [Stores the uploaded bytes. Why a File Store rather than the Relational Database?]
-- **[Upload Service]**: [Owns the upload endpoint. Coordinates the File Store write and the metadata row.]
-- **[Preview Queue + Preview Worker]**: [Async preview generation. Why async rather than blocking the upload?]
+- **[Block 1]**: [What it does in this requirement and why this block]
+- **[Block 2]**: [Same]
+- **[Block 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Why File Store for bytes plus Relational Database for metadata, instead of BLOBs in the Relational Database?]
-- **[Decision 2]**: [How does the conversation get notified that the preview is ready? Does the Message Service fanout an "attachment updated" event?]
-- **[Decision 3]**: [What happens when preview generation fails? Does the file still show up as a generic attachment?]
+- **[Decision 1]**: [Where do file bytes live versus file metadata, and why split it that way (or not)?]
+- **[Decision 2]**: [How does the conversation find out that the preview is ready?]
+- **[Decision 3]**: [What happens when preview generation fails? Does the file still show up?]
 
 ---
 
@@ -63,29 +66,20 @@ Preview render: Queue → Preview Worker → File Store (thumbnail or preview as
 
 ### User Flow Design
 
-```
-Example formats:
-Open document: User → Document Service → Relational Database (current doc state)
-Live edit: User → Document Service → Edit Queue → Document Worker → Relational Database + broadcast
-Broadcast: Document Service → Queue → other Document Services → other Users
-Snapshot: Document Worker → File Store (periodic snapshot)
-```
-
 **Your collaborative-editing flows:**
-[Write 3-5 specific flows showing how a user opens a doc, how concurrent edits get serialized, how edits broadcast to other open editors, and how the durable state is kept up to date]
+[Write 3-5 specific flows showing how a user opens a doc, how concurrent edits from multiple users are handled, how edits reach other open editors, and how the durable state is kept up to date]
 
 ### Building Blocks Added
 
-- **[Document Service]**: [Holds the live edit connection. Owns the per-document session state.]
-- **[Edit Queue + Document Worker]**: [Serializes concurrent operations into a single ordered stream applied to durable storage.]
-- **[Relational Database for document state]**: [Why the same primitive as messages? What does the row shape look like?]
-- **[Optional File Store for snapshots]**: [If you snapshot the document periodically, where does the snapshot live and why?]
+- **[Block 1]**: [What it does in this requirement and why this block]
+- **[Block 2]**: [Same]
+- **[Block 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Operational transformation or CRDT at the concept level - which? Or do you use a simpler "last-write-wins per region" rule with a vector clock? Justify.]
-- **[Decision 2]**: [Why a Queue between the Document Service and durable storage rather than direct writes?]
-- **[Decision 3]**: [How does a user joining mid-session catch up to the current state without replaying every operation?]
+- **[Decision 1]**: [How do concurrent edits from multiple users converge to the same document? Name the concept-level approach you chose and justify it.]
+- **[Decision 2]**: [What sits between a keystroke and durable storage, and why?]
+- **[Decision 3]**: [How does a user joining mid-session catch up to the current state efficiently?]
 
 ---
 
@@ -95,27 +89,20 @@ Snapshot: Document Worker → File Store (periodic snapshot)
 
 ### User Flow Design
 
-```
-Example formats:
-Index new message: Message Service → Indexing Queue → Indexing Worker → Key-Value Store (inverted index)
-Search query: User → Search Service → Key-Value Store (inverted index) → Relational Database (rehydrate matches)
-Update on edit: Message edit → Indexing Queue → Indexing Worker → Key-Value Store
-```
-
 **Your search flows:**
-[Write 3-5 specific flows for both the indexing path and the query path. Include what happens on a message edit and how the index stays consistent with the durable message log.]
+[Write 3-5 specific flows covering how new messages become searchable and how a query gets answered. Include what happens on a message edit.]
 
 ### Building Blocks Added
 
-- **[Search Service]**: [The query entry point. Why a dedicated Service rather than overloading the Message Service?]
-- **[Indexing Queue + Indexing Worker]**: [Builds the index offline. Why not index at query time?]
-- **[Key-Value Store as inverted index]**: [Or a Relational Database full-text index used through the Search Service. Whichever you choose, name the building block.]
+- **[Block 1]**: [What it does in this requirement and why this block]
+- **[Block 2]**: [Same]
+- **[Block 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Inverted index in a Key-Value Store, or a Relational Database full-text index accessed through the Search Service? Trade-offs of each.]
-- **[Decision 2]**: [How fresh is the index? Sub-second behind the live message? A few seconds? How does that staleness window get communicated to the user, if at all?]
-- **[Decision 3]**: [How does the Search Service rehydrate from inverted-index hits to actual message rows? Where do permissions get checked?]
+- **[Decision 1]**: [Which block holds the searchable representation of messages, and why that block over the alternatives?]
+- **[Decision 2]**: [How fresh are search results relative to the live message stream, and how does your design keep the send path unaffected?]
+- **[Decision 3]**: [How does a search hit become a full result the user can see, and where do permissions get checked?]
 
 ---
 
@@ -125,61 +112,43 @@ Update on edit: Message edit → Indexing Queue → Indexing Worker → Key-Valu
 
 ### User Flow Design
 
-```
-Example formats:
-Scheduled trigger: Time → Retention Service → Retention Queue (per-team jobs)
-Retention job: Queue → Retention Worker → Relational Database (read policy) → Relational Database (delete) + File Store (archive)
-Archive read: User → Search Service → File Store (cold tier) when needed
-```
-
 **Your retention flows:**
-[Write 3-5 specific flows showing how Time triggers the work, how retention jobs are enqueued per team, and how the Worker reads the policy and moves or deletes data]
+[Write 3-5 specific flows showing what triggers retention work, how per-team policies get applied, and how data actually moves or gets deleted]
 
 ### Building Blocks Added
 
-- **[Time external entity]**: [The trigger for retention sweeps. How often does it fire?]
-- **[Retention Service]**: [Owns the policy reads and the scheduling of retention jobs.]
-- **[Retention Queue + Retention Worker]**: [Does the actual delete or archive work, off the live path.]
-- **[File Store cold tier]**: [Where archived content lands. Why a separate logical tier of the File Store?]
+- **[Block or entity 1]**: [What it does in this requirement and why]
+- **[Block or entity 2]**: [Same]
+- **[Block or entity 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Why Time as the trigger rather than checking on every message write?]
-- **[Decision 2]**: [Why a Queue plus Worker instead of having the Retention Service do the deletes directly?]
-- **[Decision 3]**: [Soft-delete first then hard-delete after a grace window, or hard-delete on first sweep? What happens when a user searches for content that has been archived?]
+- **[Decision 1]**: [What triggers retention work, and why that trigger rather than the alternatives?]
+- **[Decision 2]**: [Where does the actual delete/archive work run, and why there rather than on a live path?]
+- **[Decision 3]**: [What happens when a user searches for content that has been archived or deleted?]
 
 ---
 
 ## Foundation Preserved
 
-Walk through the Part 1 paths and confirm they are intact. The grader looks for the Part 1 messaging core surviving under the Part 2 additions.
+Walk through your Part 1 paths and confirm they are intact. The grader looks for the Part 1 core surviving under the Part 2 additions.
 
-- **Messaging core**: [Message Service + fanout Queue + recipient Services still in place?]
-- **Presence**: [Still in Key-Value Store?]
-- **Conversation list cache**: [Still routed through a Service?]
-- **Notification path**: [Notification Queue + Worker + External Service push gateway still wired up?]
+- **[Part 1 path 1]**: [Still in place? What, if anything, changed?]
+- **[Part 1 path 2]**: [Same]
+- **[Part 1 path 3]**: [Same]
+- **[Part 1 path 4]**: [Same]
 
 ---
 
 ## Cross-Cutting Trade-offs
 
-A strong Part 2 names where the new requirements collide with the Part 1 design.
+A strong Part 2 names where the new requirements collide with the Part 1 design. Identify at least three tensions between the new capabilities and the existing messaging core, and state how your architecture resolves each:
 
-### Index freshness vs send latency
+**[Tension 1]**: [What pulls in each direction, where you landed, and why]
 
-[Indexing on the live send path slows sends. Indexing offline introduces a staleness window. Where do you land, and why?]
+**[Tension 2]**: [Same]
 
-### Preview generation lag
-
-[Previews are async. What does the user experience while a preview is rendering? How long is acceptable?]
-
-### Edit convergence vs broadcast latency
-
-[Serializing every edit through a Queue introduces a small delay. Skipping the Queue would risk divergent state. How do you balance?]
-
-### Retention window vs storage cost
-
-[Longer retention costs more storage. Shorter retention loses institutional memory. How does the architecture make this a team-by-team choice rather than a platform-wide one?]
+**[Tension 3]**: [Same]
 
 ---
 
@@ -187,10 +156,10 @@ A strong Part 2 names where the new requirements collide with the Part 1 design.
 
 Name what still breaks and how the system degrades:
 
-- **If the Indexing Queue backs up**: [What happens to search freshness? Does the live send path notice?]
-- **If the File Store is unavailable**: [Can users still send text-only messages? Do existing previews still load?]
-- **If the Document Worker crashes mid-edit**: [What state does the document end up in? How does the next start-up recover?]
-- **If a Retention Worker deletes data mid-search**: [Race conditions between retention and queries - how does the architecture avoid surfacing broken result rows?]
+- **[Scenario 1]**: [What breaks and how does the architecture handle it?]
+- **[Scenario 2]**: [Same]
+- **[Scenario 3]**: [Same]
+- **[Scenario 4]**: [Same]
 
 ---
 
@@ -204,15 +173,7 @@ Name what still breaks and how the system degrades:
 
 ## What This Evolution Intentionally Does NOT Address
 
-[Anything you are deferring to Part 3 - explicitly. Examples: semantic search across messages and documents, AI assistant inside channels, video calls with recording and transcription. The grader rewards designs that know their boundaries.]
-
----
-
-## Self-Graded Rubric (A / A- / B+)
-
-**My grade**: [A / A- / B+]
-
-**Why I assigned this grade**: [Apply the same rubric from Lesson 2. A means all four new requirements covered + optimal patterns + trade-offs named + Part 1 preserved. A- means strong with one precision gap. B+ means solid but missing a domain-specific pattern. Be honest.]
+[Anything you are deferring to Part 3 - explicitly. The grader rewards designs that know their boundaries.]
 
 ---
 

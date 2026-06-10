@@ -13,7 +13,7 @@ This technical design document must focus on **building blocks and architectural
 **Use:**
 - Building block names: Service, Worker, Queue, Key-Value Store, File Store, Relational Database, Vector Database
 - External entities: User, External Service, Time
-- Technology-agnostic terms: cache, fanout, sequence number, acknowledgement, presence state, push gateway
+- Technology-agnostic terms that describe patterns (e.g., cache, acknowledgement, presence state, push gateway, async processing)
 
 **Do NOT use:**
 - Specific technologies: Redis, Memcached, Kafka, RabbitMQ, NATS, PostgreSQL, MongoDB, DynamoDB, Pusher, Ably
@@ -28,6 +28,22 @@ The grader will look for pattern recognition and clear reasoning, not technology
 2. **Use your diagram as reference** while writing your user flows and technical explanations.
 3. **Ensure consistency** between what you draw and what you write.
 
+## Flow notation: how to write flows
+
+Every flow in this document uses building-block notation. Here is the format, illustrated with a system this course does not cover — a city library's book-reservation system:
+
+```
+Reserve a book: User → Reservation Service → Relational Database (availability check) → Queue → Notification Worker → External Service (SMS)
+Browse the catalog: User → Catalog Service + Key-Value Store → Relational Database (on cache miss)
+```
+
+- Use EXACT building block names
+- Use `+` for combinations (e.g., Queue + Worker)
+- Start each flow with the external entity that triggers it
+- Annotate a step's purpose in parentheses when it is not obvious
+
+Your flows should look like this in notation — the architecture is yours to design.
+
 ---
 
 ## Scenario
@@ -39,7 +55,7 @@ TeamFlow is a new team collaboration platform launching its MVP. Teams need to m
 ## Architecture Overview
 
 **High-Level Description**:
-[Provide a 2-3 sentence overview of your overall architecture approach for the MVP. Name the live messaging path, the storage shape, and how missed-message notifications get out without slowing the live send.]
+[Provide a 2-3 sentence overview of your overall architecture approach for the MVP.]
 
 **Core Building Blocks Used** (check all that apply):
 - [ ] Service (Blue Rectangle)
@@ -61,35 +77,23 @@ TeamFlow is a new team collaboration platform launching its MVP. Teams need to m
 
 ### User Flow Design
 
-**Building block requirements:**
-- Use EXACT building block names
-- Use `+` for combinations (e.g., Queue + Worker)
-- The User always connects to a Service first, never directly to storage
-
-```
-Example formats:
-Send direct message: User → Message Service → Queue → recipient Message Services → recipient Users
-Send group message: User → Channel Service → Queue → recipient Channel Services → recipient Users
-Persist message: Message Service → Relational Database
-```
-
 **Your messaging flows:**
 [Write 3-5 specific flows for direct messages, group messages, and how a recipient who is online receives a message in real time]
 
 ### Architecture Decisions & Trade-offs
 
 **Key architectural decisions:**
-- **[Decision 1]**: [Why a Queue between sender Service and recipient Services rather than direct Service-to-Service calls?]
-- **[Decision 2]**: [How does the sender's Service know which recipient Services to fan out to for a group channel?]
-- **[Decision 3]**: [Does the message hit the Relational Database before or after fanout, and why?]
+- **[Decision 1]**: [How does one sent message reach every recipient, and why did you structure that path the way you did?]
+- **[Decision 2]**: [How does the system know where each recipient can be reached?]
+- **[Decision 3]**: [Where in the flow does the message become durable, and why there?]
 
 ### Technical Implementation Details
 
-**Live connection ownership**: [Which Service holds the user's open connection? What happens when a user moves between two app instances?]
+**Live connection ownership**: [Which component holds the user's open connection? What happens when a user moves between two app instances?]
 
-**Fanout pattern**: [How does one send become N delivered messages? Where does the work happen?]
+**Delivery pattern**: [How does one send become N delivered messages? Where does the work happen?]
 
-**Persistence boundary**: [At what point in the flow is the message durably stored? What happens if the Queue is full or a recipient Service is down?]
+**Persistence boundary**: [At what point in the flow is the message durably stored? What happens if a component on the delivery path is down?]
 
 ---
 
@@ -99,28 +103,21 @@ Persist message: Message Service → Relational Database
 
 ### User Flow Design
 
-```
-Example formats:
-Ordered send: Message Service → assigns per-conversation sequence number → Queue → recipient Services
-Delivery ack: Recipient Message Service → ack → Message Service → Relational Database (delivery state)
-Read receipt cache: Message Service → Key-Value Store (per-conversation last-read marker)
-```
-
 **Your ordering and confirmation flows:**
-[Write 2-4 specific flows showing how a message gets a sequence number, how ordering is preserved through the Queue, and how acknowledgements travel back]
+[Write 2-4 specific flows showing how ordering is established and preserved end to end, and how delivery confirmations travel back to the sender]
 
 ### Architecture Decisions & Trade-offs
 
 **Key architectural decisions:**
-- **[Decision 1]**: [Where do sequence numbers come from? A monotonic counter per conversation in the Relational Database? Per-partition ordering on the Queue? Something else?]
-- **[Decision 2]**: [Why store delivery confirmation? Where does it live: Relational Database for the durable record, Key-Value Store for fast per-conversation state, or both?]
-- **[Decision 3]**: [What happens to ordering when the recipient is offline and the message is queued for later delivery?]
+- **[Decision 1]**: [Where does ordering come from in your design, and why is that the right place to establish it?]
+- **[Decision 2]**: [Where does delivery-confirmation state live, and why?]
+- **[Decision 3]**: [What happens to ordering when the recipient is offline and messages are delivered later?]
 
 ### Technical Implementation Details
 
-**Ordering mechanism**: [Name the concrete pattern - sequence numbers, monotonic IDs, per-conversation queue partitions]
+**Ordering mechanism**: [Name the concrete pattern your design uses to keep messages in order]
 
-**Acknowledgement flow**: [What does an ack look like end-to-end? Sender Service → Queue → Recipient Service → ack back. Where is the ack persisted?]
+**Acknowledgement flow**: [What does a delivery confirmation look like end-to-end? Where is it persisted?]
 
 **Out-of-order handling**: [What does the client do if two messages arrive in the wrong sequence?]
 
@@ -132,30 +129,23 @@ Read receipt cache: Message Service → Key-Value Store (per-conversation last-r
 
 ### User Flow Design
 
-```
-Example formats:
-Connection event: User connects → Message Service → Key-Value Store (per-device presence entry)
-Presence read: User → Presence Service → Key-Value Store
-Typing indicator: User types → Message Service → Key-Value Store (typing-state TTL) → Queue → recipient Services
-```
-
 **Your presence flows:**
 [Write 2-4 specific flows for connection events, presence queries, and the typing indicator across multiple devices]
 
 ### Architecture Decisions & Trade-offs
 
 **Key architectural decisions:**
-- **[Decision 1]**: [Why a Key-Value Store for presence rather than the Relational Database? What pattern does presence fit: high-write, fast-read, ephemeral?]
-- **[Decision 2]**: [How is multi-device presence aggregated? Per-device entries under a user key? An "any device online" rule? Something else?]
-- **[Decision 3]**: [How does typing state expire so a user does not appear to be typing forever after they close the tab?]
+- **[Decision 1]**: [Which storage block holds presence, and what characteristics of presence data drove that choice?]
+- **[Decision 2]**: [How is multi-device presence aggregated into a single answer?]
+- **[Decision 3]**: [How does typing state stop showing after a user closes the tab without explicitly going offline?]
 
 ### Technical Implementation Details
 
-**Presence key shape**: [What does a presence entry look like? `presence:user_id:device_id` → status + last-seen?]
+**Presence data shape**: [What does a presence entry look like?]
 
 **Multi-device aggregation**: [How do reads combine multiple device entries into a single "Alex is online" answer?]
 
-**Typing-state TTL**: [How short is the TTL? What refreshes it while the user keeps typing?]
+**Typing-state lifecycle**: [How does typing state appear, refresh while the user keeps typing, and disappear?]
 
 ---
 
@@ -165,30 +155,23 @@ Typing indicator: User types → Message Service → Key-Value Store (typing-sta
 
 ### User Flow Design
 
-```
-Example formats:
-Cache hit: User → Conversation Service → Key-Value Store
-Cache miss: User → Conversation Service → Key-Value Store → Relational Database → (populate cache) → respond
-Invalidation: New message → Message Service → Key-Value Store (update conversation list cache)
-```
-
 **Your conversation-list flows:**
-[Write 2-4 specific flows showing both the hit and miss paths, plus the invalidation path when a new message arrives]
+[Write 2-4 specific flows showing how the list is served fast, what happens when the fast path cannot answer, and how the list stays current as new messages arrive]
 
 ### Architecture Decisions & Trade-offs
 
 **Key architectural decisions:**
-- **[Decision 1]**: [Cache-aside, write-through, or write-behind? Why?]
-- **[Decision 2]**: [TTL with refresh, write-through invalidation on every message, or both?]
-- **[Decision 3]**: [What is in the cached value? A list of conversation IDs? Full preview snippets? Unread counts?]
+- **[Decision 1]**: [What caching pattern governs this list, and why that one?]
+- **[Decision 2]**: [How does the cached list stay correct as new messages arrive?]
+- **[Decision 3]**: [What exactly is in the cached value?]
 
 ### Technical Implementation Details
 
 **Cache keys and values**: [What is the key? What is the shape of the value? How big is the value per user?]
 
-**Invalidation strategy**: [When does the cache get updated? On every send? Only when the conversation list itself changes? Both?]
+**Freshness strategy**: [When does the cached list get updated, and by what?]
 
-**Cold-start cost**: [What does the first read after a cache miss look like in terms of Relational Database load?]
+**Cold-start cost**: [What does the first read after a miss look like in terms of load on the system of record?]
 
 ---
 
@@ -198,30 +181,23 @@ Invalidation: New message → Message Service → Key-Value Store (update conver
 
 ### User Flow Design
 
-```
-Example formats:
-Detect offline recipient: Message Service → Key-Value Store (presence check) → Queue (notification job)
-Notification delivery: Queue → Notification Worker → External Service (push gateway) → user device
-Retry on failure: Notification Worker → backoff → retry → External Service
-```
-
 **Your notification flows:**
-[Write 2-4 specific flows showing how an offline recipient gets detected, how the notification job is queued, and how the Worker calls the push gateway]
+[Write 2-4 specific flows showing how an offline recipient gets detected, how the notification work is handed off, and how the push gateway gets called]
 
 ### Architecture Decisions & Trade-offs
 
 **Key architectural decisions:**
-- **[Decision 1]**: [Why fire-and-forget to a Queue rather than a synchronous call to the push gateway from the Message Service?]
-- **[Decision 2]**: [How do you detect "this recipient was offline" at send time - presence Key-Value Store lookup? An ack-timeout reaper? A delivery-state row in the Relational Database that a Worker watches?]
-- **[Decision 3]**: [What happens when the External Service push gateway is rate-limiting you or returning errors? How does the Worker retry without losing notifications?]
+- **[Decision 1]**: [How does your design keep a slow push gateway from slowing the live send path?]
+- **[Decision 2]**: [How do you detect "this recipient was offline" at send time?]
+- **[Decision 3]**: [What happens when the push gateway is rate-limiting you or returning errors? How are notifications not lost?]
 
 ### Technical Implementation Details
 
 **Detection trigger**: [What signal tells the system "this needs a push notification"?]
 
-**Worker behavior**: [How many notification Workers? How do they share work? What is the retry and backoff policy?]
+**Retry behavior**: [How does notification work get retried on failure, and what is the policy?]
 
-**External Service**: [The push gateway is an External Service. What does the contract look like? Token in, delivery acknowledgement out?]
+**Gateway contract**: [What does the interaction with the push gateway look like? Token in, delivery acknowledgement out?]
 
 ---
 
@@ -235,24 +211,18 @@ Retry on failure: Notification Worker → backoff → retry → External Service
 
 ### Building block combinations used
 
-- **[Pattern 1]**: [Which building blocks combined, where, and why. Example: Queue + Worker + External Service for async push notifications.]
-- **[Pattern 2]**: [Which building blocks combined, where, and why. Example: Key-Value Store + Relational Database for cache-aside on conversation lists.]
-- **[Pattern 3]**: [Which building blocks combined, where, and why. Example: Service + Queue + Service for message fanout.]
+- **[Pattern 1]**: [Which building blocks combined, where, and why]
+- **[Pattern 2]**: [Which building blocks combined, where, and why]
+- **[Pattern 3]**: [Which building blocks combined, where, and why]
 
 ### Trade-offs explicitly accepted
 
-- **[Trade-off 1]**: [What you gave up and what you gained. Example: eventual consistency on the conversation list cache in exchange for sub-millisecond reads.]
-- **[Trade-off 2]**: [What you gave up and what you gained.]
+- **[Trade-off 1]**: [What you gave up and what you gained]
+- **[Trade-off 2]**: [What you gave up and what you gained]
 
 ### What this MVP intentionally does NOT address
 
-[Anything you are deferring to Part 2 or Part 3 - be explicit about what is out of scope. Examples: file sharing, collaborative document editing, full-text search across history, retention policies, semantic search, AI features, video calls. The grader rewards designs that know their boundaries.]
-
-### Self-graded rubric (A / A- / B+)
-
-**My grade**: [A / A- / B+]
-
-**Why I assigned this grade**: [One paragraph using the rubric from Lesson 2 - A means all requirements + optimal blocks + trade-offs acknowledged, A- means strong with one precision gap, B+ means solid with one domain-specific gap]
+[Anything you are deferring to Part 2 or Part 3 - be explicit about what is out of scope. The grader rewards designs that know their boundaries.]
 
 ---
 

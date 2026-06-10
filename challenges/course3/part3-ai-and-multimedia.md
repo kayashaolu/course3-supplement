@@ -16,19 +16,28 @@ Your Part 2 platform serves hundreds of thousands of teams. File sharing, collab
 
 This document is the **final evolution** - layering AI capabilities and live video on top of your Part 2 architecture. The patterns from Parts 1 and 2 stay intact. AI is added, not bolted on.
 
-## IMPORTANT: Building Block Classification Matters Here
+## IMPORTANT: Classification Matters Here
 
-Cloud LLMs (the ones that summarize, answer channel questions, extract action items) are **External Services**, not File Stores and not Services you own. A locally-run model is Service + File Store (for weights), but the typical case is a cloud API call through External Service. The grader will check this classification - it is part of the grade.
+Part of the grade is classifying third-party AI and media capabilities into the correct building blocks and external entities. Apply the classification rules from the lessons carefully - a capability described with the wrong block costs points.
 
-Vector embeddings live in a **Vector Database**, not in a Key-Value Store or a Relational Database. The Vector Database is the one new building block this challenge requires. By the end of Part 3, all seven building blocks and all three external entities should appear in the cumulative design.
+One naming note: WebRTC is allowed as the name of an open *protocol*. It is not a vendor name, and it is not a building block - do not name a Service "WebRTC", a Queue "WebRTC", or storage "WebRTC".
 
-The real-time media gateway for video calls is also an **External Service**. WebRTC is allowed as the name of the open protocol the gateway speaks - it is not a vendor name. WebRTC is not a building block. Do not name a Service "WebRTC", a Queue "WebRTC", or storage "WebRTC".
+## Flow notation: how to write flows
+
+Every flow in this document uses building-block notation. Here is the format, illustrated with a system this course does not cover - a city library's book-reservation system:
+
+```
+Reserve a book: User → Reservation Service → Relational Database (availability check) → Queue → Notification Worker → External Service (SMS)
+Browse the catalog: User → Catalog Service + Key-Value Store → Relational Database (on cache miss)
+```
+
+Your flows should look like this in notation - the architecture is yours to design.
 
 ---
 
 ## Part 1 + Part 2 Architecture Recap
 
-[Briefly summarize the architecture after Part 2 (2-3 sentences). Messaging core (Service + Queue fanout), presence in Key-Value Store, conversation-list cache, notification path with External Service push gateway, File Store for attachments, Document Service + Queue for collaborative editing, search indexing pipeline, Time-driven retention. This is the foundation that survives.]
+[Briefly summarize the architecture after Part 2 (2-3 sentences). Name the major components and how they connect. This is the foundation that survives.]
 
 ---
 
@@ -38,29 +47,20 @@ The real-time media gateway for video calls is also an **External Service**. Web
 
 ### User Flow Design
 
-```
-Example formats:
-Embedding pipeline: Message Service → Embedding Queue → Embedding Worker → External Service (embedding model) → Vector Database
-Document embed: Document Service (on save) → Embedding Queue → Embedding Worker → External Service → Vector Database
-Semantic query: User → Semantic Search Service → External Service (embedding model) → Vector Database → Relational Database (rehydrate matches) → User
-Hybrid query: User → Semantic Search Service → keyword index (from Part 2) + Vector Database → merge results
-```
-
 **Your semantic search flows:**
-[Write 3-5 specific flows showing the offline embedding pipeline for new messages and documents, the query path, and how semantic results combine with the keyword search from Part 2]
+[Write 3-5 specific flows showing how messages and documents become findable by meaning, how a query gets answered, and how semantic results relate to the keyword search from Part 2]
 
 ### Building Blocks Added
 
-- **[Vector Database]**: [Stores embeddings for every message and document. Why a Vector Database and not the Relational Database?]
-- **[Embedding Queue + Embedding Worker]**: [Why offline? Why not embed at query time, or at write time inside the Message Service?]
-- **[External Service for embedding model]**: [Named explicitly. Why External Service rather than a Service you own?]
-- **[Semantic Search Service]**: [The query entry point. Why a dedicated Service rather than overloading the Search Service from Part 2?]
+- **[Block or entity 1]**: [What it stores or does, and why this block is the right classification]
+- **[Block or entity 2]**: [Same]
+- **[Block or entity 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Why a managed embedding model behind an External Service rather than running your own?]
-- **[Decision 2]**: [Hybrid search (keyword + vector) or pure semantic? Why?]
-- **[Decision 3]**: [How does the Vector Database stay in sync with deletes from the Part 2 retention pipeline?]
+- **[Decision 1]**: [What you chose to build versus consume for this capability, and why]
+- **[Decision 2]**: [How do semantic results and keyword results relate in your design? Why?]
+- **[Decision 3]**: [How does this capability stay consistent with deletes from the Part 2 retention pipeline?]
 
 ---
 
@@ -70,29 +70,19 @@ Hybrid query: User → Semantic Search Service → keyword index (from Part 2) +
 
 ### User Flow Design
 
-```
-Example formats:
-Channel summary: User → Assistant Service → External Service (embedding) → Vector Database → context assembly → External Service (LLM) → User
-Action items: User → Assistant Service → Relational Database (recent messages) → External Service (LLM) → User
-Channel Q&A: User → Assistant Service → External Service (embedding) → Vector Database (top-k matches) → context assembly → External Service (LLM) → User
-Response cache: Assistant Service → Key-Value Store (cached summary keyed by channel + time window)
-```
-
 **Your assistant flows:**
-[Write 3-5 specific flows showing the retrieval-grounded response pattern. The shape required is: query → embedding → Vector Database → context → External Service (LLM) → response.]
+[Write 3-5 specific flows showing how a user's question becomes an answer grounded in the channel's actual content]
 
 ### Building Blocks Added
 
-- **[Assistant Service]**: [Owns the assistant endpoint inside each channel. Coordinates retrieval and the LLM call.]
-- **[External Service - LLM]**: [The cloud language model. Named as an External Service entity.]
-- **[External Service - embedding model]**: [Already added in R10. Reused here for query embedding.]
-- **[Vector Database]**: [Already added in R10. Reused here for retrieval.]
-- **[Optional Key-Value Store for response cache]**: [Why cache assistant responses at all? When is the cache safe to return?]
+- **[Block or entity 1]**: [What it does, and why this block is the right classification]
+- **[Block or entity 2]**: [Same]
+- **[Block or entity 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Why retrieval-grounded rather than feeding the entire channel into the LLM context window?]
-- **[Decision 2]**: [How does the system handle the LLM being unavailable or rate-limited? Does the channel degrade gracefully?]
+- **[Decision 1]**: [How does the assistant get the right channel content into its answer, and why that approach over the alternatives?]
+- **[Decision 2]**: [How does the system handle the AI capability being unavailable or rate-limited? Does the channel degrade gracefully?]
 - **[Decision 3]**: [Where do you check permissions? An assistant must not surface content from messages the asking user cannot see.]
 
 ---
@@ -103,80 +93,61 @@ Response cache: Assistant Service → Key-Value Store (cached summary keyed by c
 
 ### User Flow Design
 
-```
-Example formats:
-Start call: User → Call Service → External Service (media gateway, speaks WebRTC) → other Users
-Recording finishes: Call Service → File Store (raw recording) → Transcription Queue
-Transcription: Transcription Queue → Transcription Worker → External Service (transcription model) → Relational Database (transcript) + File Store
-Index transcript: Transcription Worker → Indexing Queue (from Part 2) + Embedding Queue (from Part 3)
-Search transcript: User → Search Service or Semantic Search Service → matched transcript snippet → User
-```
-
 **Your video and transcription flows:**
-[Write 3-5 specific flows showing how a call is set up, how the recording lands in File Store, how the transcription pipeline runs, and how the transcript becomes searchable]
+[Write 3-5 specific flows showing how a call is set up, how the recording is captured and stored, how the transcription happens, and how the transcript becomes searchable]
 
 ### Building Blocks Added
 
-- **[Call Service]**: [Holds call signaling state - who is in the call, who started it, who is the host. Does NOT carry the media.]
-- **[External Service - media gateway]**: [Carries the actual audio and video. Speaks WebRTC as a protocol. This is the green cloud, not a Service you own.]
-- **[File Store for recordings]**: [Raw recording bytes land here. Why File Store and not the Relational Database?]
-- **[Transcription Queue + Transcription Worker]**: [Async transcription. Why async rather than blocking the end-of-call?]
-- **[External Service - transcription model]**: [The cloud transcription provider. Named as an External Service entity.]
+- **[Block or entity 1]**: [What it does, and why this block is the right classification]
+- **[Block or entity 2]**: [Same]
+- **[Block or entity 3]**: [Same]
 
 ### Architecture Decisions & Trade-offs
 
-- **[Decision 1]**: [Why an External Service for the media gateway rather than building real-time media inside the seven building blocks?]
-- **[Decision 2]**: [Why does the recording have to land in File Store before transcription starts, rather than streaming the audio to the transcription provider live?]
-- **[Decision 3]**: [Transcripts feed the existing search index AND the Vector Database. Why both?]
+- **[Decision 1]**: [What carries the actual audio and video, and why did you classify it the way you did?]
+- **[Decision 2]**: [When and how does transcription happen relative to the call, and why?]
+- **[Decision 3]**: [How do transcripts become findable through the search capabilities your design already has?]
 
 ---
 
-## The Three Classic Trade-offs
+## Cross-Cutting Trade-offs
 
-A strong Part 3 submission names these explicitly.
+A strong Part 3 names the hard trade-offs explicitly. Identify at least three tensions that adding AI and live video to a collaboration platform creates, and state how your architecture lands on each:
 
-### Freshness vs Cost
+**[Tension 1]**: [What pulls in each direction, the choice you made, and the mechanism that implements it]
 
-[Each LLM call costs money and adds latency. A cached channel summary stays fresh enough for many minutes; a question about an active thread should not be cached at all. Where do you cache, what is the TTL, and what triggers an invalidation?]
+**[Tension 2]**: [Same]
 
-### Retrieval Relevance vs Latency
-
-[Deeper retrieval (more vectors searched, larger context windows assembled) produces better answers but adds latency. What is your top-k? Do you do reranking? What is the user's acceptable wait time before they think the assistant is broken?]
-
-### Privacy and Permissions
-
-[The assistant pulls context from messages the user can see. The retrieval step has to filter by membership and visibility. Where in the flow does that filter sit - at retrieval time, at context-assembly time, or at the LLM prompt level?]
+**[Tension 3]**: [Same]
 
 ---
 
 ## Graceful Degradation: Designing for AI Failure
 
-AI and media services fail. The LLM provider has an outage. The embedding service rate-limits you. The media gateway is unreachable. TeamFlow cannot go down when AI does.
+AI and media services fail. TeamFlow cannot go down when AI does.
 
 For each AI and video capability, define the fallback:
 
-| Capability | Primary path | Fallback when External Service is unavailable |
+| Capability | Primary path | Fallback when unavailable |
 |---|---|---|
-| Semantic search | [Vector Database + embedding External Service] | [Keyword search from Part 2] |
-| Channel summary | [External Service LLM + retrieval] | [Disable summary with a "summaries unavailable" banner; messages still flow] |
-| Channel Q&A | [Retrieval + External Service LLM] | [Disable assistant; suggest search instead] |
-| New message embedding | [External Service embedding model] | [Embedding Queue absorbs the lag; messages still searchable by keyword in the meantime] |
-| Video call media | [External Service media gateway] | [Show "calls temporarily unavailable"; messaging still works] |
-| Transcription | [Transcription Queue + Worker + External Service] | [Recording still saved; transcript fills in when service returns] |
+| Semantic search | [Your primary path] | [Your fallback] |
+| Channel summary | [Your primary path] | [Your fallback] |
+| Channel Q&A | [Your primary path] | [Your fallback] |
+| Video call | [Your primary path] | [Your fallback] |
+| Transcription | [Your primary path] | [Your fallback] |
 
-**Architectural principle**: [State explicitly - the platform should still work when every AI and video External Service is down for an hour. AI enhances the product. AI is not load-bearing for messaging.]
+**Architectural principle**: [State explicitly what your design guarantees about messaging when AI and video capabilities are unavailable.]
 
 ---
 
 ## Foundation Preserved
 
-Walk through the Parts 1 and 2 paths and confirm they survive:
+Walk through your Parts 1 and 2 paths and confirm they survive:
 
-- **Messaging core**: [Message Service + fanout Queue still in place?]
-- **Presence**: [Still in Key-Value Store?]
-- **Notification path**: [Notification Queue + Worker + External Service push gateway still wired up?]
-- **File Store and search indexing**: [Both still present and feeding Part 3 additions?]
-- **Time entity**: [Still triggering retention sweeps?]
+- **[Part 1/2 path 1]**: [Still in place? What, if anything, changed?]
+- **[Part 1/2 path 2]**: [Same]
+- **[Part 1/2 path 3]**: [Same]
+- **[Part 1/2 path 4]**: [Same]
 
 ---
 
@@ -188,8 +159,6 @@ Provide a complete architecture diagram (or detailed text description) showing:
 2. All Part 2 additions (still present)
 3. All Part 3 additions (new)
 4. The connections between them
-
-By the end, all seven building blocks (Service, Worker, Queue, Key-Value Store, File Store, Relational Database, Vector Database) and all three external entities (User, External Service, Time) should be visible in the design.
 
 [Include diagram or detailed text walkthrough]
 
@@ -205,15 +174,7 @@ By the end, all seven building blocks (Service, Worker, Queue, Key-Value Store, 
 
 ## What This Architecture Intentionally Does NOT Address
 
-[Be honest about what is out of scope. Examples: real-time translation between languages, AI-generated documents inside channels, multi-tenant private model fine-tuning, on-device offline assistant. The grader rewards designs that know their boundaries.]
-
----
-
-## Self-Graded Rubric (A / A- / B+)
-
-**My grade**: [A / A- / B+]
-
-**Why I assigned this grade**: [Apply the rubric from Lesson 2. Specifically check: did you classify the cloud LLM as External Service (not File Store, not Service alone)? Did you classify the media gateway as External Service? Did you keep WebRTC as a protocol name and not a building block? Did you reuse the Vector Database for both R10 and R11? Did you provide explicit fallbacks for every AI and video capability?]
+[Be honest about what is out of scope. The grader rewards designs that know their boundaries.]
 
 ---
 
